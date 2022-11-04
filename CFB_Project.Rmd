@@ -1,0 +1,232 @@
+---
+title: "STT 180 Write-Up"
+author: "Josh Wolf"
+date: "12/14/2020"
+output: 
+ html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_sections: false
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      error = TRUE,
+                      message = FALSE, 
+                      warning = FALSE)
+```
+
+```{r Packages}
+# The following loads the packages I used.
+library(tidyverse)
+library(ggiraph)
+library(broom)
+```
+
+
+
+## **Introduction**
+
+
+	 
+```{r Original Data Set}
+CFBdata <- read.csv("CFB2019.csv", header = TRUE)
+CFBdata <- as_tibble(CFBdata)
+
+head(CFBdata)
+```
+  The data set I chose to analyze, shown above in a glimpse, is about the 2019 College Football season. It includes each of the 130 teams in the FBS, and all of their statistics on the season. The statistics cover everything from Win-Loss record, offense/defense, turnovers, 1st-4th downs, and more. I aimed to research which Power-5 conference is the best, does offense or defense have a larger impact on a team’s success, and what is the effect that turnovers have on a team. I anticipate to find which variables have large impacts and what the relationships are according to how a team performs. After learning about these relationships, I made a calculated prediction on which team should have won the championship.
+  
+
+  
+  First, I had to tidy and wrangle the data set to fit my needs. This was done with a majority of dplyr functions.
+  
+  
+  The biggest issue was the data set did not have a “Conference” variable, but rather each team’s conference was just put after their name in their respective row. Had I kept the data set like it was originally, it would have been impossible to do any analysis by conference. To create the “Conference” column, I had to use the “Mutate” dplyr function and then the “Ifelse” function and list all the teams as a vector for a certain conference. That was repeated 4 more times to add the rest of the Power-5 conference teams with their respective conferences. 
+
+```{r Conference Variable}
+CFBdata.Power5 <- CFBdata %>% 
+  mutate(Conference = ifelse(Team %in% c("Boston College (ACC)", "Clemson (ACC)", "Miami (FL) (ACC)", "Syracuse (ACC)", "Florida St. (ACC)", "Duke (ACC)", "Louisville (ACC)", "Georgia Tech (ACC)", "Virginia (ACC)", "Wake Forest (ACC)", "Virginia Tech (ACC)", "Pittsburgh (ACC)", "NC State (ACC)", "North Carolina (ACC)", "Notre Dame (FBS Independent)"), "ACC", 
+         ifelse(Team %in% c("Illinois (Big Ten)", "Indiana (Big Ten)", "Iowa (Big Ten)", "Maryland (Big Ten)", "Michigan (Big Ten)", "Michigan St. (Big Ten)", "Minnesota (Big Ten)", "Nebraska (Big Ten)", "NorthIstern (Big Ten)", "Ohio St. (Big Ten)", "Penn St. (Big Ten)", "Purdue (Big Ten)", "Rutgers (Big Ten)", "Wisconsin (Big Ten)"), "Big 10", 
+         ifelse(Team %in% c("Arizona St. (Pac-12)", "Arizona (Pac-12)", "California (Pac-12)", "Colorado (Pac-12)", "Oregon (Pac-12)", "Oregon St. (Pac-12)", "Southern California (Pac-12)", "Stanford (Pac-12)", "UCLA (Pac-12)", "Utah (Pac-12)", "Washington (Pac-12)", "Washington St. (Pac-12)"), "PAC 12",
+          ifelse(Team %in% c("Alabama (SEC)", "Arkansas (SEC)", "Auburn (SEC)", "Florida (SEC)", "Georgia (SEC)", "Kentucky (SEC)", "Mississippi St. (SEC)", "LSU (SEC)", "Missouri (SEC)", "Ole Miss (SEC)", "South Carolina (SEC)", "Texas A&M (SEC)", "Tennessee (SEC)", "Vanderbilt (SEC)"), "SEC",
+          ifelse(Team %in% c("Baylor (Big 12)", "Iowa St. (Big 12)", "Kansas (Big 12)", "Kansas St. (Big 12)", "Oklahoma (Big 12)", "Oklahoma St. (Big 12)", "TCU (Big 12)", "Texas (Big 12)", "Texas Tech (Big 12)", "Ist Virginia (Big 12)"), "Big 12", "NA")))))) %>% 
+  relocate(Conference, .after = Team)
+```
+  
+  Next, I had to change the “Win-Loss” variable in order to perform my analysis since I needed a teams’ “successes” (wins) as the predictor variable in any models. I simply used the “Separate” function to split the Win-Loss into two vectors of “W” and “L”. After all that I was able to see each team’s conference, and their wins and losses in separate columns.
+  
+```{r Tidying the Data}
+CFB.Power5.Wins <- CFBdata.Power5 %>% 
+  filter(Conference != "NA") %>% 
+  separate(Win.Loss, c("W", "L")) %>% 
+  mutate(W = as.numeric(W)) %>% 
+  mutate(L = as.numeric(L))
+```
+  After cleaning the data set this is a glimpse of the table that was produced:
+  
+```{r Cleaned Data Set}
+head(CFB.Power5.Wins)
+```
+  
+##  **Results**
+  
+**Best Conference**
+
+The first question I wanted to answer was which Power-5 Conference is the best. I determined which conference was the best based off the number of “Quality” teams (6 or more wins) and the number of “Championship-caliber” (10 or more wins) teams. The teams with 6 or more wins are deemed "Quality" teams because that is the number to be eligible for any postseason game. I decided on 10 or more wins for championship-caliber teams because that is the usual amount of wins for a New Year's Six Bowl team. The New Year's Six Bowls are the 6 most important bowl games. These games include the Peach Bowl, Rose Bowl, Orange Bowl, Fiesta Bowl, Cotton Bowl, and Sugar Bowl.
+
+The following filters the data and extracts the amount of quality teams in each conference.
+```{r Quality Teams}
+# Bowl Eligible Teams by Conference (Quality Teams)
+CFB.Power5.Wins %>% 
+  filter(W >= 6) %>% 
+  count(Conference) %>%
+  arrange(desc(n)) 
+```
+
+The following filters the data and extracts the amount of championship caliber teams in each conference.
+```{r Championship Teams}
+# New Year's 6 Eligible Teams by Conference (Great Teams)
+CFB.Power5.Wins %>% 
+  filter(W >= 10) %>% 
+  count(Conference) %>%
+  arrange(desc(n))
+```
+ 
+ After examining the results, I can see that SEC is near the top in both quality and championship level teams. While ACC and Big 10 were leading in one category, they're both lower than SEC in the other. This is why I concluded that SEC was the best conference for the 2019 season.
+ 
+ **Offense vs. Defense**
+ 
+ Our second question was to discover if offense or defense had a greater impact on a team's amount of wins. To do this I created a multiple regression model that predicted a team's wins using their offensive and defensive ranks. 
+Based on the slope values for offensive and defensive rank, I can see that defensive rank has more of an effect since it's slope coefficient is slightly larger. The reason why the slopes are negative values is because the lower the rank the better the performance (1 is the best).
+
+The equation for the model is: Ŷ = 12.883 - 0.040(Offensive.Rank) - 0.053(Defensive.Rank)
+ 
+```{r Offense/Defense Multiple Regression Model}
+mod.fit.Off.Def <- lm(W ~ Off.Rank + Def.Rank, data = CFB.Power5.Wins)
+mod.fit.Off.Def %>% 
+  broom::tidy()
+
+mod.fit.Off.Def %>% 
+  glance() %>%
+  select(r.squared, adj.r.squared)
+```
+To further evaluate the relationship, I made separate simple linear models to predict a team's wins. The following graph and model is for a team's Offensive rank. 
+
+```{r Offensive LM/Graph}
+Off.Graph <- CFB.Power5.Wins %>% 
+  ggplot(mapping = aes(Off.Rank, W)) + geom_point() + geom_point_interactive(mapping = aes(size = Scoring.Off.Rank, tooltip = Team)) + xlim(100, 1) + ylim(0, 16) +  geom_smooth(se = FALSE, method = lm) +
+  labs(x = "Offensive Rank", y = "Wins",
+       title = "Wins by Offensive Rank",
+       caption = "R^2 = .301")
+
+ggiraph(ggobj = Off.Graph)
+
+mod.fit.Off <- lm(W ~ Off.Rank, data = CFB.Power5.Wins)
+mod.fit.Off %>% 
+  broom::tidy()
+
+mod.fit.Off %>% 
+  glance() %>%
+  select(r.squared, adj.r.squared)
+```
+ 
+ The following graph/model is for Defensive Rank.
+```{r Defensive LM/Graph}
+Def.Graph <- CFB.Power5.Wins %>% 
+  ggplot(mapping = aes(Def.Rank, W)) + geom_point() + geom_point_interactive(mapping = aes(size = Scoring.Def.Rank, tooltip = Team)) + xlim(100, 1) + ylim(0, 16) +  geom_smooth(se = FALSE, method = lm) +   labs(x = "Defensive Rank", y = "Wins",
+       title = "Wins by Defensive Rank",
+       caption = "R^2 = .502")
+
+ggiraph(ggobj = Def.Graph)
+
+
+mod.fit.Def <- lm(W ~ Def.Rank, data = CFB.Power5.Wins)
+mod.fit.Def %>% 
+  broom::tidy()
+
+mod.fit.Def %>% 
+  glance() %>%
+  select(r.squared, adj.r.squared)
+
+```
+ Each graph shows the line of best fit for the respective rank and wins. By hovering over any point, I can see which team it is representing. The smaller the point, the better the team's rank. 
+ 
+ By looking at the graph's for both offense and defense, defense has a higher correlation between rank and wins. The R^2 value for defense is almost double that of offensive R^2 value. A higher R^2 value shows that the variance in Wins is explained better through defensive rank than offensive rank. Based on these results, I can conclude that defense has a larger impact on the number of wins a team has than offense.
+ 
+ **Turnovers Impact**
+ 
+   The third question I looked into was the impact of turnovers. To do this I created a linear model predicting wins according to a team's turnover rank.
+   
+The equation for the model is: Ŷ = 9.935 - 0.045(turnover rank)
+
+I graphed this model showing the line of best fit. The dots with the lighter shade of blue represent teams with a positive turnover margin and are towards the top in wins. Generally, these teams also have better turnover ranks (lower the better- shown on x-axis). 
+ 
+```{r Turnover LM/Graph}
+Turnover.Graph <- CFB.Power5.Wins %>% 
+  ggplot(mapping = aes(Turnover.Rank, W)) + geom_point() + geom_point_interactive(mapping = aes(color = Turnover.Margin, size = 20, tooltip = Team)) + xlim(100, 1) + ylim(0, 16) +  geom_smooth(se = FALSE, method = lm) +   labs(x = "Turnover Rank", y = "Wins",
+       title = "Wins by Turnover Rank",
+       caption = "R^2 = .308")
+ggiraph(ggobj = Turnover.Graph)
+
+mod.fit.Turnovers <- lm(W ~ Turnover.Rank, data = CFB.Power5.Wins)
+mod.fit.Turnovers %>% 
+  broom::tidy()
+
+mod.fit.Turnovers %>% 
+  glance() %>%
+  select(r.squared, adj.r.squared)
+```
+ I came to the conclusion that turnovers do have a significant impact on a team. The team's with the better turnover rank and margin had more wins than the lower ranked teams. Additionally, the R^2 value of the line of best fit is .308, which is fairly large for a single variable predicting wins.
+ 
+ **Champion Prediction**
+ 
+  The last question I wanted to answer is which team should have won the championship in 2019. To do this, I based it off of the variables I analyzed in the previous questions which were offensive, defensive, and turnover ranks. First I filtered through the data to find the top three teams. To do this, I weighted defense the highest and turnovers the lowest based off of their R^2 in previous models predicting wins.
+ 
+```{r Filtered Championship Teams}
+CFB.Power5.Wins %>% 
+  filter(Def.Rank <= 20) %>% 
+  filter(Turnover.Rank <= 25) %>% 
+  filter(Off.Rank <= 30) %>% 
+  select(Team, Conference, Games, W, L, Def.Rank, Turnover.Rank, Off.Rank) %>% 
+  relocate(Def.Rank, .after = L) %>% 
+  relocate(Turnover.Rank, .after = Def.Rank)
+```
+ 
+ I believe these three teams were the top teams in 2019 based off of the previously mentioned variables. 
+
+Next I created a multiple regression model to predict wins based off of these three variables. I inputed each team's respective ranks into the model equation, shown below, to compute their predicted wins. 
+
+ Ŷ = 13.27 - 0.034(Offensive.Rank) - 0.048(Defensive.Rank) - 0.018(Turnover.Rank)
+```{r Champion LM}
+mod.fit.champion <- lm(W ~ Off.Rank + Def.Rank + Turnover.Rank, data = CFB.Power5.Wins)
+mod.fit.champion %>% 
+  broom::tidy()
+
+mod.fit.champion %>% 
+  glance() %>%
+  select(r.squared, adj.r.squared)
+```
+ Below is the predicted wins for each team. 
+ 
+- Alabama = 12.0531
+- Clemson = 12.6676
+- Ohio St. = 12.7816
+
+Since Ohio State had the largest predicted win total, I believe they should have won the championship in 2019. The actual winner was LSU, however Ohio State finished 3rd overall which was relatively close.
+
+
+## **Conclusion**
+
+  From completing this project, I found many trends and relationships in college football. A lot of these trends are talked about in old sayings like “Defense wins championships”, but it was interesting to learn if they were true or not. I learned that defenses do, in fact, increase a team’s success rate (more than offense, at least). Coaches always love to preach about ball security and not losing possessions. Our results showed that there is evidence to back up what they are saying, that turnovers do have a large impact on a team’s wins. I found the SEC to be the highest level quality and championship-caliber conference. Lastly, I believed that Ohio State University should have won the championship in 2019, according to my models and analysis.
+  
+My methods seemed efficient for the most part. I was successfully able to tidy up the data set and organize it to the way I saw best for my project. Then I was able to answer my own questions in clear and concise figures and charts. If I wanted to be more concise in the results, I could have looked at all 130 FBS teams in the data set as opposed to only the 65 Power-5 teams. Another way to increase accuracy is if I involved more “per-game” stats into my analysis such as yards per game, touchdowns per game, and so on. 
+
+There were many variables that I did not end up using just due to the time constraints for the project, but had I included more variables my answers could have been more informed. The data seemed to be very reliable and valid, however it only included stats from the 2019 season. Because of this, I can only make conclusions about this season in particular. Therefore, it could be considered extrapolation if I assumed the results true for every season. In the future, some questions I could answer would be about the variables I didn't look at such as rushing/passing, touchdowns, and more.
+
+## **References**
+
+- Gallini, Jeff. “College Football Team Stats 2019-2020.”Kaggle, 15 Jan. 2020, www.kaggle.com/jeffgallini/college-football-team-stats-2019.
+	
